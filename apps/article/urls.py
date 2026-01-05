@@ -26,8 +26,8 @@ urlpatterns = [
     # 选中标签
     path('tag/<int:id>/', views.article_tag_detail, name='article_tag_detail'),
     # markdown上传图片
-    path('upload_image/', views.upload_image, name='upload_image'),
-    path('success/', lambda r: HttpResponse("发布成功")),
+    path('upload/image/', views.EditorMdImageUploadView.as_view(), name='upload_image'),
+    # path('upload_image/', views.upload_image, name='upload_image'),
     # 文章归档
     path('archives/', views.article_archives, name='article_archives'),
 ]

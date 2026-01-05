@@ -161,6 +161,24 @@ SITE_NAME = '南歌EuanSu的个人网站'
 
 # 本地markdown文件路径
 LOCAL_MARKDOWN_PATH = os.path.join(BASE_DIR, 'docs')
+
+# 图片来源，eg：local、qiniu
+IMAGE_SOURCE = 'qiniu'
+
+BUCKET_CONFIG = {
+    'qiniu':{
+        'access_key': 'lRgQ6Weu0CEGZFyFSXw9QDiOAZtKFcGiQW_U9BoK', # 公钥
+        'secret_key': 'z1QtG6S2ex5FJlMp4lk7CM6J73QPxNk72bVyrSGT', # 私钥
+        'bucket_name': 'euansublog', # 存储空间名
+        'bucket_domain': 'img.euansu.cn' # 外链域名
+    }
+}
+# 上传的图片最大限制，单位MB
+UPLOAD_IMAGE_MAX_SIZE = 5
+
+# 允许的图片格式
+ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+
 # 这里用来加载图片
 SERVER_ADDR = 'http://localhost:8000'
 

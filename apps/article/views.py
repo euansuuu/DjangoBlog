@@ -1,9 +1,12 @@
 import os
+import uuid
+import tempfile
 import markdown
+from datetime import datetime
+from django.views import View
 from django.shortcuts import render, redirect
 from django.http import HttpResponse, JsonResponse
 from django.conf import settings
-from datetime import datetime
 # 导入数据模型ArticlePost
 # from .models import ArticlePost
 # 导入文章表单ArticlePostForm
@@ -19,6 +22,14 @@ from article.models import ArticlePost, Category, ArticleTag
 
 from django.forms.models import model_to_dict
 from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from article.tools import ImageTool
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from django.db.models.functions import TruncYear, TruncMonth
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+
 
 def article_list(request):
 
@@ -286,42 +297,91 @@ def article_tag_detail(request, id):
 
     return render(request, 'article/tags.html', context)
 
-# makrdown上传图片
-@csrf_exempt
-def upload_image(request):
-    if request.method == 'POST' and request.FILES.get("editormd-image-file"):
-        f = request.FILES["editormd-image-file"]
-        today = datetime.now().strftime('%Y%m%d')
-        path = os.path.join("uploads", "article", today, f.name)
-        full_path = os.path.join(settings.MEDIA_ROOT, path)
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
-        with open(full_path, 'wb+') as destination:
-            for chunk in f.chunks():
-                destination.write(chunk)
 
-        response = JsonResponse({
+@method_decorator(csrf_exempt, name='dispatch')
+class EditorMdImageUploadView(LoginRequiredMixin,View):
+    """
+    仅登录的用户可上传图片
+    """
+    def post(self, request, *args, **kwargs):
+        file = request.FILES.get("editormd-image-file")
+        if not file:
+            return self._error_response("未上传文件")
+
+        # 1. 文件大小校验
+        max_size_mb = getattr(settings, 'UPLOAD_IMAGE_MAX_SIZE', 5)  # 默认 5MB
+        if file.size > max_size_mb * 1024 * 1024:
+            return self._error_response(f"文件过大，最大支持 {max_size_mb}MB")
+
+        # 2. 文件类型校验（建议基于内容而非扩展名）
+        is_allowed, img_ext = ImageTool.is_allowed_image(file.name)
+        if not is_allowed:
+            return self._error_response(f"不支持的图片格式: {img_ext}")
+
+        # 3. 生成唯一文件名
+        img_upload_name = f"{uuid.uuid4().hex}{img_ext}"
+
+        try:
+            if getattr(settings, 'IMAGE_SOURCE', 'local') == "qiniu":
+                # 七牛云上传
+                tmp_required_cleanup = False
+                temp_path = None
+
+                try:
+                    temp_path = file.temporary_file_path()
+                except AttributeError:
+                    tmp_file = tempfile.NamedTemporaryFile(delete=False)
+                    temp_path = tmp_file.name
+                    tmp_required_cleanup = True
+                    try:
+                        for chunk in file.chunks():
+                            tmp_file.write(chunk)
+                    finally:
+                        tmp_file.close()
+
+                is_success, msg = ImageTool.upload_to_qiniu(temp_path, img_upload_name)
+                if not is_success:
+                    return self._error_response(f"图床上传失败: {msg}")
+                file_url = msg
+
+                if tmp_required_cleanup and temp_path:
+                    os.unlink(temp_path)
+            else:
+                # 本地存储
+                today = datetime.now().strftime('%Y%m%d')
+                path = os.path.join("uploads", "article", today, img_upload_name)
+                saved_path = default_storage.save(path, ContentFile(file.read()))
+                file_url = default_storage.url(saved_path)
+
+        except Exception as e:
+            return self._error_response(f"上传失败: {str(e)}")
+
+        # 构造成功响应
+        response_data = {
             "success": 1,
             "message": "上传成功",
-            "url": settings.MEDIA_URL + path
-        })
-        # 添加跨域响应头
+            "url": file_url
+        }
+        response = JsonResponse(response_data)
+
+        # CORS 设置（若前端跨域）
         response["Access-Control-Allow-Origin"] = "*"
-        response["Access-Control-Allow-Headers"] = "*"
+        response["Access-Control-Allow-Headers"] = "Content-Type"
+
         return response
 
-    return JsonResponse({"success": 0, "message": "上传失败"})
-
-from django.db.models.functions import TruncYear, TruncMonth
-from django.db.models import Count
+    def _error_response(self, message):
+        response = JsonResponse({
+            "success": 0,
+            "message": message,
+            "url": ""
+        })
+        response["Access-Control-Allow-Origin"] = "*"
+        response["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
 
 def article_archives(request):
-    # 查询所有的文章，按照年份进行分组，统计每个年份的文章数量
-    # articles_by_year = ArticlePost.objects.filter(is_deleted=False)\
-    #     .annotate(year=TruncYear('created'))\
-    #         .values('year')\
-    #             .annotate(count=Count('uuid'))\
-    #                 .order_by('-year')    
     # 按照年份聚合文章
     articles_by_year = ArticlePost.objects.filter(is_deleted=False)\
         .annotate(year=TruncYear('created'))\

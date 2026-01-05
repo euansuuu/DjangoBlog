@@ -6,6 +6,7 @@
 *.pyc
 staticfiles/
 __pycache__/
+media/
 
 # 虚拟环境
 DjangoEnv/
